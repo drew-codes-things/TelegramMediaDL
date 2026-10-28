@@ -22,6 +22,7 @@
     const page = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
     const BATCH_GAP_MS = 1000;
+    const BATCH_LABEL = 'Download';
 
     const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const mediaOf = (msg) => msg && msg.media && (msg.media.document || msg.media.photo);
@@ -79,7 +80,7 @@
         if (!bar || bar.querySelector('#nk-tg-batch')) return;
         bar.insertAdjacentHTML('beforeend',
             '<button id="nk-tg-batch" class="btn-primary btn-transparent text-bold" title="Download selected media" style="cursor:pointer;width:auto;">' +
-            '<span class="nk-txt">Download</span></button>');
+            '<span class="nk-txt">' + BATCH_LABEL + '</span></button>');
         bar.querySelector('#nk-tg-batch').addEventListener('click', downloadSelected);
     }
 
@@ -87,7 +88,7 @@
         const sel = page.appImManager?.chat?.selection;
         const txt = document.querySelector('#nk-tg-batch .nk-txt');
         const media = ((await sel?.getSelectedMessages()) || []).filter(mediaOf);
-        if (!media.length) { txt.textContent = 'N/A'; await delay(1500); txt.textContent = 'D/L'; return; }
+        if (!media.length) { txt.textContent = 'N/A'; await delay(1500); txt.textContent = BATCH_LABEL; return; }
 
         const btn = document.getElementById('nk-tg-batch');
         btn.disabled = true; btn.style.opacity = 0.6;
@@ -96,7 +97,7 @@
             try { await download(media[i]); } catch (err) { console.warn('[tg-save] batch item failed', err); }
             if (i < media.length - 1) await delay(BATCH_GAP_MS);
         }
-        btn.disabled = false; btn.style.opacity = 1; txt.textContent = 'D/L';
+        btn.disabled = false; btn.style.opacity = 1; txt.textContent = BATCH_LABEL;
         sel?.cancelSelection();
     }
 
