@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Telegram Web Media Downloader
 // @author       drew-codes-things
-// @version      1.0
+// @version      1.0.1
 // @description  Download photos and videos from Telegram Web, one by one, in batches, or via a chat-wide scan-and-pick list - even in restricted "no-forwards" chats. Also re-enables copying text from protected messages.
 // @match        https://web.telegram.org/*
 // @match        https://webk.telegram.org/*
@@ -132,23 +132,20 @@
     function openScanPicker(items) {
         const overlay = document.createElement('div');
         overlay.id = 'nk-tg-scan-overlay';
-        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;' +
-            'display:flex;align-items:center;justify-content:center;';
 
         const rows = items.map((item, i) =>
-            '<label style="display:flex;align-items:flex-start;gap:.5rem;padding:.3rem 0;overflow-wrap:anywhere;">' +
+            '<label class="nk-tg-row">' +
             '<input type="checkbox" class="nk-scan-item" data-i="' + i + '" checked>' +
             '<span>' + escapeHtml(item.name) + '</span></label>'
         ).join('');
 
         overlay.innerHTML =
-            '<div style="background:var(--surface-color,#212121);color:var(--primary-text-color,#fff);' +
-            'border-radius:8px;padding:1rem;max-width:28rem;max-height:80vh;overflow:auto;">' +
-            '<div style="font-weight:bold;margin-bottom:.5rem;">Select media to download (' + items.length + ' found)</div>' +
+            '<div class="nk-tg-panel">' +
+            '<div class="nk-tg-title">Select media to download (' + items.length + ' found)</div>' +
             '<div id="nk-tg-scan-list">' + rows + '</div>' +
-            '<div style="display:flex;gap:.5rem;margin-top:1rem;justify-content:flex-end;">' +
-            '<button id="nk-tg-scan-cancel" class="btn-primary btn-transparent">Cancel</button>' +
-            '<button id="nk-tg-scan-go" class="btn-primary">Download Selected</button>' +
+            '<div class="nk-tg-actions">' +
+            '<button id="nk-tg-scan-cancel" class="nk-tg-btn nk-tg-btn-secondary">Cancel</button>' +
+            '<button id="nk-tg-scan-go" class="nk-tg-btn">Download Selected</button>' +
             '</div></div>';
 
         document.body.appendChild(overlay);
@@ -185,9 +182,6 @@
         btn.id = 'nk-tg-scan';
         btn.title = 'Scan chat for media to download';
         btn.textContent = 'Scan';
-        btn.style.cssText = 'position:fixed;bottom:5rem;right:1.5rem;z-index:9999;height:2.5rem;' +
-            'padding:0 1rem;border-radius:1.25rem;border:none;cursor:pointer;background:var(--primary-color,#3390ec);' +
-            'color:#fff;font-size:.9rem;font-weight:bold;box-shadow:0 2px 6px rgba(0,0,0,.3);';
         btn.addEventListener('click', () => {
             const items = scanChatMedia();
             if (!items.length) {
@@ -206,9 +200,49 @@
         if (el?.closest('.no-forwards')) e.stopImmediatePropagation();
     }, true);
 
+    const GRADIENT_STYLE = `
+#nk-tg-scan {
+    position: fixed; bottom: 5rem; right: 1.5rem; z-index: 9999; height: 2.5rem; padding: 0 1.1rem;
+    border-radius: 999px; border: 1px solid transparent; cursor: pointer;
+    background: linear-gradient(135deg, #e5383b, #7a0f14); color: #fff;
+    font: 500 .9rem 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, .45); transition: filter .15s ease;
+}
+#nk-tg-scan:hover { filter: brightness(1.12); }
+#nk-tg-scan-overlay {
+    position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, .55); backdrop-filter: blur(4px);
+}
+.nk-tg-panel {
+    max-width: 28rem; max-height: 80vh; overflow: auto; padding: 1.1rem 1.2rem;
+    background: radial-gradient(120% 70% at 0% 0%, rgba(160, 20, 28, .38), transparent 60%), linear-gradient(165deg, #1c0608 0%, #0d0b0c 42%, #070708 100%);
+    color: #ececec; border: 1px solid rgba(255, 255, 255, .14); border-radius: 16px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, .45);
+    font: .9rem/1.5 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+.nk-tg-title { font-weight: 600; margin-bottom: .6rem; color: #f5c2c3; }
+.nk-tg-row {
+    display: flex; align-items: flex-start; gap: .5rem; padding: .35rem .5rem; overflow-wrap: anywhere;
+    border-radius: 10px; cursor: pointer;
+}
+.nk-tg-row:hover { background: rgba(255, 255, 255, .07); }
+.nk-tg-row input { accent-color: #e5383b; margin-top: .25rem; }
+.nk-tg-actions { display: flex; gap: .5rem; margin-top: 1rem; justify-content: flex-end; }
+.nk-tg-btn {
+    padding: .5rem 1rem; border-radius: 12px; border: 1px solid transparent; cursor: pointer; color: #fff;
+    background: linear-gradient(135deg, #e5383b, #7a0f14); font-family: inherit; font-size: .85rem; font-weight: 500;
+    transition: filter .15s ease;
+}
+.nk-tg-btn:hover { filter: brightness(1.12); }
+.nk-tg-btn:disabled { opacity: .6; cursor: default; filter: none; }
+.nk-tg-btn-secondary { background: rgba(255, 255, 255, .07); border-color: rgba(255, 255, 255, .14); color: #a1a1a6; }
+.nk-tg-btn-secondary:hover { filter: none; background: rgba(255, 255, 255, .11); color: #ececec; }
+@media (prefers-reduced-motion: reduce) { #nk-tg-scan, .nk-tg-btn { transition: none; } }
+`;
+
     const style = document.createElement('style');
     style.textContent = '.bubble.no-forwards,.bubble.no-forwards *' +
-        '{-webkit-user-select:text!important;user-select:text!important}';
+        '{-webkit-user-select:text!important;user-select:text!important}' + GRADIENT_STYLE;
     (document.head || document.documentElement).appendChild(style);
 
     const observer = new MutationObserver((mutations) => {
