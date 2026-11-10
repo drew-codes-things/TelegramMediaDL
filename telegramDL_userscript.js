@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Telegram Web Media Downloader
 // @author       drew-codes-things
-// @version      1.0.1
-// @description  Download photos and videos from Telegram Web, one by one, in batches, or via a chat-wide scan-and-pick list - even in restricted "no-forwards" chats. Also re-enables copying text from protected messages.
+// @version      1.1.0
+// @description  Download photos and videos from Telegram Web, one by one, in batches, or via a scan-and-pick list of what's loaded or of the whole chat - even in restricted "no-forwards" chats. Also re-enables copying text from protected messages.
 // @match        https://web.telegram.org/*
 // @match        https://webk.telegram.org/*
 // @match        https://webz.telegram.org/*
@@ -23,6 +23,16 @@
 
     const BATCH_GAP_MS = 1000;
     const BATCH_LABEL = 'Download';
+    const SCAN_LABEL = 'Scan';
+    const SCAN_ALL_LABEL = 'Scan all';
+    const NOTHING_FOUND_LABEL = 'N/A';
+    const LABEL_FLASH_MS = 1500;
+    const SCAN_STEP_WAIT_MS = 700;
+    const SCAN_QUIET_STEPS_TO_FINISH = 4;
+    const SCAN_MAX_MEDIA = 5000;
+    const SCAN_MAX_MINUTES = 15;
+    const SCAN_MAX_MS = SCAN_MAX_MINUTES * 60 * 1000;
+    const WHOLE_CHAT_NOTE = 'Whole chat scanned.';
 
     const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const mediaOf = (msg) => msg && msg.media && (msg.media.document || msg.media.photo);
@@ -129,7 +139,112 @@
         return found;
     }
 
-    function openScanPicker(items) {
+    const currentPeer = () => String(page.appImManager?.chat?.peerId ?? '');
+
+    function findChatScroller() {
+        const scroller = document.querySelector('.bubbles .scrollable-y');
+        if (scroller) return scroller;
+        let node = document.querySelector('.bubbles [data-mid]');
+        while (node && node !== document.body) {
+            if (node.scrollHeight > node.clientHeight) return node;
+            node = node.parentElement;
+        }
+        return null;
+    }
+
+    function collectLoadedMedia(found, peerId) {
+        for (const bubble of getChatBubbles()) {
+            if (bubble.dataset.peerId !== peerId) continue;
+            const mid = +bubble.dataset.mid;
+            if (found.has(mid)) continue;
+            const msg = lookup(peerId, mid);
+            if (mediaOf(msg)) found.set(mid, { msg, name: describeMedia(msg) });
+        }
+    }
+
+    function renderedSpan() {
+        const bubbles = getChatBubbles();
+        if (!bubbles.length) return '';
+        return bubbles[0].dataset.mid + '-' + bubbles[bubbles.length - 1].dataset.mid + '-' + bubbles.length;
+    }
+
+    function scanStopReason(scan, found) {
+        const peer = currentPeer();
+        if (scan.stopped) return 'Stopped early: the list only has what was found so far.';
+        if (peer && peer !== scan.peerId) return 'Stopped early: the chat changed.';
+        if (found.size >= SCAN_MAX_MEDIA) return 'Stopped early at ' + SCAN_MAX_MEDIA + ' media.';
+        if (Date.now() - scan.startedAt > SCAN_MAX_MS) return 'Stopped early after ' + SCAN_MAX_MINUTES + ' minutes.';
+        return '';
+    }
+
+    async function sweepChat(scroller, towardsOldest, found, scan, onProgress) {
+        let quietSteps = 0;
+        while (quietSteps < SCAN_QUIET_STEPS_TO_FINISH) {
+            const reason = scanStopReason(scan, found);
+            if (reason) return reason;
+            const before = renderedSpan();
+            scroller.scrollTop = towardsOldest ? 0 : scroller.scrollHeight;
+            await delay(SCAN_STEP_WAIT_MS);
+            quietSteps = renderedSpan() === before ? quietSteps + 1 : 0;
+            collectLoadedMedia(found, scan.peerId);
+            onProgress(found.size);
+        }
+        return '';
+    }
+
+    function showScanStatus(scan) {
+        const panel = document.createElement('div');
+        panel.id = 'nk-tg-scan-status';
+        const text = document.createElement('span');
+        const stop = document.createElement('button');
+        stop.id = 'nk-tg-scan-stop';
+        stop.className = 'nk-tg-btn nk-tg-btn-secondary';
+        stop.textContent = 'Stop';
+        stop.addEventListener('click', () => {
+            scan.stopped = true;
+            stop.disabled = true;
+            stop.textContent = 'Stopping...';
+        });
+        panel.append(text, stop);
+        document.body.appendChild(panel);
+        return (count) => { text.textContent = 'Scanning the whole chat: ' + count + ' found'; };
+    }
+
+    function flashLabel(button, label) {
+        button.textContent = NOTHING_FOUND_LABEL;
+        setTimeout(() => { button.textContent = label; }, LABEL_FLASH_MS);
+    }
+
+    let activeScan = null;
+
+    async function scanWholeChat(button) {
+        if (activeScan) return;
+        const scroller = findChatScroller();
+        if (!scroller) { flashLabel(button, SCAN_ALL_LABEL); return; }
+
+        const scan = { peerId: currentPeer() || getChatBubbles()[0]?.dataset.peerId || '', startedAt: Date.now(), stopped: false };
+        const found = new Map();
+        activeScan = scan;
+        button.disabled = true;
+        const showProgress = showScanStatus(scan);
+        let reason = '';
+        try {
+            collectLoadedMedia(found, scan.peerId);
+            showProgress(found.size);
+            reason = await sweepChat(scroller, true, found, scan, showProgress) ||
+                await sweepChat(scroller, false, found, scan, showProgress);
+        } finally {
+            document.getElementById('nk-tg-scan-status')?.remove();
+            button.disabled = false;
+            activeScan = null;
+        }
+
+        const items = Array.from(found.entries()).sort((a, b) => a[0] - b[0]).map(([, item]) => item);
+        if (!items.length) { flashLabel(button, SCAN_ALL_LABEL); return; }
+        openScanPicker(items, reason || WHOLE_CHAT_NOTE);
+    }
+
+    function openScanPicker(items, note) {
         const overlay = document.createElement('div');
         overlay.id = 'nk-tg-scan-overlay';
 
@@ -142,6 +257,7 @@
         overlay.innerHTML =
             '<div class="nk-tg-panel">' +
             '<div class="nk-tg-title">Select media to download (' + items.length + ' found)</div>' +
+            (note ? '<div class="nk-tg-note">' + escapeHtml(note) + '</div>' : '') +
             '<div id="nk-tg-scan-list">' + rows + '</div>' +
             '<div class="nk-tg-actions">' +
             '<button id="nk-tg-scan-cancel" class="nk-tg-btn nk-tg-btn-secondary">Cancel</button>' +
@@ -176,22 +292,24 @@
         });
     }
 
-    function addScanButton() {
-        if (document.getElementById('nk-tg-scan')) return;
+    function addFloatingButton(id, label, title, onClick) {
+        if (document.getElementById(id)) return;
         const btn = document.createElement('button');
-        btn.id = 'nk-tg-scan';
-        btn.title = 'Scan chat for media to download';
-        btn.textContent = 'Scan';
-        btn.addEventListener('click', () => {
+        btn.id = id;
+        btn.title = title;
+        btn.textContent = label;
+        btn.addEventListener('click', () => onClick(btn));
+        document.body.appendChild(btn);
+    }
+
+    function addScanButtons() {
+        addFloatingButton('nk-tg-scan', SCAN_LABEL, 'Scan the loaded part of this chat for media to download', (btn) => {
             const items = scanChatMedia();
-            if (!items.length) {
-                btn.textContent = 'N/A';
-                setTimeout(() => { btn.textContent = 'Scan'; }, 1500);
-                return;
-            }
+            if (!items.length) { flashLabel(btn, SCAN_LABEL); return; }
             openScanPicker(items);
         });
-        document.body.appendChild(btn);
+        addFloatingButton('nk-tg-scan-all', SCAN_ALL_LABEL, 'Scroll through the whole chat and list every photo and video',
+            (btn) => scanWholeChat(btn).catch((err) => console.warn('[tg-save] scan all failed', err)));
     }
 
     document.addEventListener('copy', (e) => {
@@ -201,14 +319,24 @@
     }, true);
 
     const GRADIENT_STYLE = `
-#nk-tg-scan {
+#nk-tg-scan, #nk-tg-scan-all {
     position: fixed; bottom: 5rem; right: 1.5rem; z-index: 9999; height: 2.5rem; padding: 0 1.1rem;
     border-radius: 999px; border: 1px solid transparent; cursor: pointer;
     background: linear-gradient(135deg, #e5383b, #7a0f14); color: #fff;
     font: 500 .9rem 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     box-shadow: 0 16px 40px rgba(0, 0, 0, .45); transition: filter .15s ease;
 }
-#nk-tg-scan:hover { filter: brightness(1.12); }
+#nk-tg-scan-all { bottom: 8.25rem; }
+#nk-tg-scan:hover, #nk-tg-scan-all:hover { filter: brightness(1.12); }
+#nk-tg-scan-all:disabled { opacity: .6; cursor: default; filter: none; }
+#nk-tg-scan-status {
+    position: fixed; bottom: 11.5rem; right: 1.5rem; z-index: 9999; display: flex; align-items: center; gap: .75rem;
+    padding: .6rem .8rem; border-radius: 14px; border: 1px solid rgba(255, 255, 255, .14);
+    background: linear-gradient(165deg, #1c0608 0%, #0d0b0c 42%, #070708 100%); color: #ececec;
+    font: .85rem/1.4 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, .45);
+}
+.nk-tg-note { margin: -.3rem 0 .6rem; color: #a1a1a6; font-size: .85rem; }
 #nk-tg-scan-overlay {
     position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center;
     background: rgba(0, 0, 0, .55); backdrop-filter: blur(4px);
@@ -237,7 +365,7 @@
 .nk-tg-btn:disabled { opacity: .6; cursor: default; filter: none; }
 .nk-tg-btn-secondary { background: rgba(255, 255, 255, .07); border-color: rgba(255, 255, 255, .14); color: #a1a1a6; }
 .nk-tg-btn-secondary:hover { filter: none; background: rgba(255, 255, 255, .11); color: #ececec; }
-@media (prefers-reduced-motion: reduce) { #nk-tg-scan, .nk-tg-btn { transition: none; } }
+@media (prefers-reduced-motion: reduce) { #nk-tg-scan, #nk-tg-scan-all, .nk-tg-btn { transition: none; } }
 `;
 
     const style = document.createElement('style');
@@ -256,7 +384,7 @@
     });
     const start = () => {
         observer.observe(document.body, { childList: true, subtree: true });
-        addScanButton();
+        addScanButtons();
     };
     if (document.body) start();
     else document.addEventListener('DOMContentLoaded', start, { once: true });

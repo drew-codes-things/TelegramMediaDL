@@ -1,0 +1,11 @@
+{
+  "name": "telegram-media-dl",
+  "private": true,
+  "description": "Tests for the Telegram Web Media Downloader userscript",
+  "scripts": {
+    "test": "node --check telegramDL_userscript.js && node --test tests/"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0"
+  }
+}
