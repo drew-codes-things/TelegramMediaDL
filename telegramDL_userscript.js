@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Telegram Web Media Downloader
 // @author       drew-codes-things
-// @version      1.1.0
+// @version      1.1.1
 // @description  Download photos and videos from Telegram Web, one by one, in batches, or via a scan-and-pick list of what's loaded or of the whole chat - even in restricted "no-forwards" chats. Also re-enables copying text from protected messages.
 // @match        https://web.telegram.org/*
 // @match        https://webk.telegram.org/*
@@ -271,7 +271,7 @@
         overlay.querySelector('#nk-tg-scan-list').addEventListener('click', (e) => {
             const label = e.target.closest('label');
             const cb = label?.querySelector('.nk-scan-item');
-            if (!cb) return;
+            if (!cb || e.target === cb) return;
             e.preventDefault();
             cb.checked = !cb.checked;
         });
