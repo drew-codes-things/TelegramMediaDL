@@ -35,7 +35,7 @@
 
 ## How Scan all works
 
-Telegram Web only keeps part of a chat in the page at a time, so the plain Scan button sees just that part. Scan all scrolls to the top of the chat again and again, picking up each batch of older messages as Telegram loads it, until nothing new appears; then it scrolls back down to catch anything newer. Keep the chat open while it runs.
+Telegram Web only keeps part of a chat in the page at a time, so the plain Scan button sees just that part. Scan all scrolls to the top of the chat again and again, picking up each batch of older messages as Telegram loads it, until nothing older has loaded for 7 seconds (it waits a little longer after each quiet step); then it scrolls back down to catch anything newer. It cannot tell the real start of the chat from a slow load, so the list says when it stopped rather than claiming the whole chat was covered; on a slow connection, run Scan all again to check for older media. Keep the chat open while it runs.
 
 It stops by itself, and the checklist says why, when you press Stop, when you switch to another chat (so two chats never get mixed), at 5,000 media, or after 15 minutes. Messages Telegram never loads into the page can't be found.
 

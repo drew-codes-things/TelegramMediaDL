@@ -30,7 +30,7 @@ function mediaMids() {
     return Array.from(chatHistory().values()).filter((m) => m.media).map((m) => m.mid);
 }
 
-function fakeTelegram({ withScroller = true } = {}) {
+function fakeTelegram({ withScroller = true, loadDelayMs = 0 } = {}) {
     const dom = new JSDOM(
         '<!doctype html><html><head></head><body><div class="bubbles">' +
         (withScroller ? '<div class="scrollable scrollable-y"><div class="bubbles-inner"></div></div>' : '') +
@@ -43,7 +43,22 @@ function fakeTelegram({ withScroller = true } = {}) {
     const chat = { peerId: PEER };
     const view = { first: MESSAGE_COUNT - PAGE_SIZE + 1, last: MESSAGE_COUNT, top: CLIENT_HEIGHT, peer: PEER };
 
-    window.setTimeout = (callback) => setImmediate(callback);
+    let clock = 0;
+    let pendingLoad = null;
+    const loadPage = (apply) => {
+        if (!loadDelayMs) { apply(); return; }
+        if (!pendingLoad) pendingLoad = { due: clock + loadDelayMs, apply };
+    };
+    window.setTimeout = (callback, ms = 0) => {
+        clock += ms;
+        if (pendingLoad && clock >= pendingLoad.due) {
+            const { apply } = pendingLoad;
+            pendingLoad = null;
+            apply();
+            render();
+        }
+        setImmediate(callback);
+    };
     window.mtprotoMessagePort = {
         getMessageByPeer: (peerId, mid) => (peerId === PEER ? history.get(mid) : undefined),
     };
@@ -71,13 +86,17 @@ function fakeTelegram({ withScroller = true } = {}) {
             set: (value) => {
                 view.top = value;
                 if (value <= 0 && view.first > 1) {
-                    view.first = Math.max(1, view.first - PAGE_SIZE);
-                    view.last = Math.min(MESSAGE_COUNT, view.first + PAGE_SIZE * 2 - 1);
-                    view.top = CLIENT_HEIGHT;
+                    loadPage(() => {
+                        view.first = Math.max(1, view.first - PAGE_SIZE);
+                        view.last = Math.min(MESSAGE_COUNT, view.first + PAGE_SIZE * 2 - 1);
+                        view.top = CLIENT_HEIGHT;
+                    });
                 } else if (value >= SCROLL_HEIGHT - CLIENT_HEIGHT && view.last < MESSAGE_COUNT) {
-                    view.last = Math.min(MESSAGE_COUNT, view.last + PAGE_SIZE);
-                    view.first = Math.max(1, view.last - PAGE_SIZE * 2 + 1);
-                    view.top = CLIENT_HEIGHT;
+                    loadPage(() => {
+                        view.last = Math.min(MESSAGE_COUNT, view.last + PAGE_SIZE);
+                        view.first = Math.max(1, view.last - PAGE_SIZE * 2 + 1);
+                        view.top = CLIENT_HEIGHT;
+                    });
                 }
                 render();
             },
@@ -109,7 +128,23 @@ test('Scan all walks the whole chat, oldest first, and finds media that was neve
     const rows = pickerRows(document);
     assert.deepEqual(rows, mediaMids().map((mid) => 'pic ' + mid));
     assert.match(document.querySelector('.nk-tg-title').textContent, /33 found/);
-    assert.equal(document.querySelector('.nk-tg-note').textContent, 'Whole chat scanned.');
+    assert.match(document.querySelector('.nk-tg-note').textContent, /^Scan finished: nothing older loaded for 7 seconds\./);
+});
+
+test('Scan all keeps waiting for an older page that is slow to arrive', async () => {
+    const { document } = fakeTelegram({ loadDelayMs: 3500 });
+    document.getElementById('nk-tg-scan-all').click();
+    await waitFor(() => document.getElementById('nk-tg-scan-overlay'), 'the picker');
+    assert.deepEqual(pickerRows(document), mediaMids().map((mid) => 'pic ' + mid));
+});
+
+test('the finished note never claims the whole chat was covered', async () => {
+    const { document } = fakeTelegram({ loadDelayMs: 60000 });
+    document.getElementById('nk-tg-scan-all').click();
+    await waitFor(() => document.getElementById('nk-tg-scan-overlay'), 'the picker');
+    const note = document.querySelector('.nk-tg-note').textContent;
+    assert.doesNotMatch(note, /Whole chat/);
+    assert.match(note, /run Scan all again/);
 });
 
 test('the plain Scan button still only lists what is loaded now', async () => {

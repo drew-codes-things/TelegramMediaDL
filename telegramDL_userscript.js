@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Telegram Web Media Downloader
 // @author       drew-codes-things
-// @version      1.1.1
+// @version      1.1.2
 // @description  Download photos and videos from Telegram Web, one by one, in batches, or via a scan-and-pick list of what's loaded or of the whole chat - even in restricted "no-forwards" chats. Also re-enables copying text from protected messages.
 // @match        https://web.telegram.org/*
 // @match        https://webk.telegram.org/*
@@ -32,7 +32,9 @@
     const SCAN_MAX_MEDIA = 5000;
     const SCAN_MAX_MINUTES = 15;
     const SCAN_MAX_MS = SCAN_MAX_MINUTES * 60 * 1000;
-    const WHOLE_CHAT_NOTE = 'Whole chat scanned.';
+    const SCAN_QUIET_WAIT_MS = SCAN_STEP_WAIT_MS * (SCAN_QUIET_STEPS_TO_FINISH * (SCAN_QUIET_STEPS_TO_FINISH + 1)) / 2;
+    const SCAN_FINISHED_NOTE = 'Scan finished: nothing older loaded for ' + Math.round(SCAN_QUIET_WAIT_MS / 1000) +
+        ' seconds. On a slow connection or a very long chat, run Scan all again to check for older media.';
 
     const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const mediaOf = (msg) => msg && msg.media && (msg.media.document || msg.media.photo);
@@ -184,7 +186,7 @@
             if (reason) return reason;
             const before = renderedSpan();
             scroller.scrollTop = towardsOldest ? 0 : scroller.scrollHeight;
-            await delay(SCAN_STEP_WAIT_MS);
+            await delay(SCAN_STEP_WAIT_MS * (quietSteps + 1));
             quietSteps = renderedSpan() === before ? quietSteps + 1 : 0;
             collectLoadedMedia(found, scan.peerId);
             onProgress(found.size);
@@ -241,7 +243,7 @@
 
         const items = Array.from(found.entries()).sort((a, b) => a[0] - b[0]).map(([, item]) => item);
         if (!items.length) { flashLabel(button, SCAN_ALL_LABEL); return; }
-        openScanPicker(items, reason || WHOLE_CHAT_NOTE);
+        openScanPicker(items, reason || SCAN_FINISHED_NOTE);
     }
 
     function openScanPicker(items, note) {
